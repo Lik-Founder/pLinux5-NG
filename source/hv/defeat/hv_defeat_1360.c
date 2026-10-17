@@ -35,9 +35,15 @@
 int sceKernelSleep(int secs);
 #include "linux.h"
 #include "loader.h"
-#include "shellcode_hv.h"
-#include "break_hv.h"
-#include "takeover.h"
+/* The shellcode blobs are defined in hv_defeat_1320.c (the blob headers are
+ * definition-style and may be included by one translation unit only); declare
+ * them here instead. */
+extern unsigned char shellcode_hv_bin[];
+extern unsigned int shellcode_hv_bin_len;
+extern unsigned char break_hv_bin[];
+extern unsigned int break_hv_bin_len;
+extern unsigned char takeover_bin[];
+extern unsigned int takeover_bin_len;
 #include "utils.h"
 
 #include <ps5/kernel.h>
@@ -262,88 +268,26 @@ static void stage_identity_map(void) {
   }
 }
 
-/* Copy a file straight into the cave, one chunk at a time.
+/* Compare a staged image against the userland mapping that fed it, at the
+ * head, the middle and the tail. Returns 0 when they agree.
  *
- * The obvious shape - map the whole image, read it, then copy it into the cave -
- * needs a 41 MB anonymous mapping, and measured on 13.60 that mapping before the
- * suspend is what stops the console coming back: with it the resume powers the
- * console off, without it the resume completes and NP_ENABLE is cleared. Nothing
- * needs the whole image at once, so it is never materialised.
- *
- * The cave is inside the identity page table staged at cave_hv_paging, so it is
- * written through the direct map as usual. */
-#define LINUX_CHUNK 0x4000
-
-#define LINUX_CHUNK 0x4000
-static uint8_t g_linux_chunk[LINUX_CHUNK];
-
-static int stream_file_into_cave(uint64_t dst_pa, const char *path, size_t size,
-                                 const char *what) {
-  int fd = open(path, O_RDONLY);
-  if (fd < 0) {
-    notify("13.60: cannot open %s to stage %s (errno %d)\n", path, what, errno);
-    return -1;
-  }
-
-  size_t done = 0;
-  while (done < size) {
-    size_t want = size - done;
-    if (want > sizeof(g_linux_chunk))
-      want = sizeof(g_linux_chunk);
-
-    ssize_t n = read(fd, g_linux_chunk, want);
-    if (n <= 0) {
-      int e = errno;
-      close(fd);
-      notify("13.60: read %s failed at %zu of %zu B (returned %zd, errno %d)\n",
-             what, done, size, n, e);
-      return -1;
-    }
-
-    /* kwrite_large, not kwrite: kwrite is a single kernel_copyin() and a large
-     * one hangs the payload outright. kwrite_large chunks at 4 KB internally. */
-    kwrite_large(pa_to_dmap(dst_pa + done), g_linux_chunk, (size_t)n);
-    done += (size_t)n;
-  }
-
-  close(fd);
-  notify("13.60: streamed %s (%zu B) into the cave at %#lx.\n", what, size,
-         (unsigned long)dst_pa);
-  return 0;
-}
-
-/* Compare a streamed image against its file, at the head, the middle and the
- * tail. Returns 0 when they agree. */
-static int verify_streamed(uint64_t dst_pa, const char *path, size_t size,
-                           const char *what) {
-  int fd = open(path, O_RDONLY);
-  if (fd < 0) {
-    notify("13.60: verify %s: cannot reopen %s\n", what, path);
-    return -1;
-  }
-
+ * Nothing checked this before. The staging reported that it had written N
+ * bytes and that was taken as done, so a truncated or misplaced copy would
+ * have looked exactly like a healthy one - and a kernel that cannot unpack its
+ * initramfs panics within a few seconds, which is precisely the symptom. The
+ * head, one chunk in the middle and the tail of each image are enough to catch
+ * a short copy, an off-by-one in the destination and a source that ran out. */
+static int verify_staged(uint64_t dst_pa, const void *src, size_t size,
+                         const char *what) {
   static const size_t probe = 0x1000;
-  static uint8_t from_file[0x1000];
   static uint8_t from_cave[0x1000];
   const size_t offsets[3] = {0, size / 2 & ~(size_t)0xFFF,
                              (size > probe ? size - probe : 0) & ~(size_t)0xFFF};
 
   for (int i = 0; i < 3; i++) {
     size_t off = offsets[i];
-    if (lseek(fd, (off_t)off, SEEK_SET) < 0) {
-      close(fd);
-      notify("13.60: verify %s: seek to %zu failed\n", what, off);
-      return -1;
-    }
-    ssize_t n = read(fd, from_file, probe);
-    if (n <= 0) {
-      close(fd);
-      notify("13.60: verify %s: read at %zu returned %zd\n", what, off, n);
-      return -1;
-    }
-
-    kread(pa_to_dmap(dst_pa + off), from_cave, (size_t)n);
-    if (memcmp(from_file, from_cave, (size_t)n) != 0) {
+    kread(pa_to_dmap(dst_pa + off), from_cave, probe);
+    if (memcmp(from_cave, (const uint8_t *)src + off, probe) != 0) {
       /* A mismatch is not a transient failure - the bytes are wrong, and they
        * will be just as wrong on the next attempt. Retrying thirty times would
        * only hide it.
@@ -358,24 +302,21 @@ static int verify_streamed(uint64_t dst_pa, const char *path, size_t size,
        * So a run that leaves the console alive means the staged images are wrong.
        * A run that still powers the console off means they are fine and the
        * fault is further in - the kernel, the boot parameters, or the hardware. */
-      notify("13.60: verify %s: MISMATCH at offset %zu (%zd B). "
-             "Parking WITHOUT handing over to Linux, so that the console "
-             "staying on reports the bad image.\n", what, off, n);
-      close(fd);
+      notify("13.60: verify %s: MISMATCH at offset %zu. Parking WITHOUT handing "
+             "over to Linux, so that the console staying on reports the bad "
+             "image.\n", what, off);
       for (;;)
         sleep(30);
     }
   }
 
-  close(fd);
-  notify("13.60: verify %s: %zu B match at head, middle and tail.\n", what,
+  notify("13.60: staged %s: %zu B match at head, middle and tail.\n", what,
          size);
   return 0;
 }
 
 static int stage_hv_boot(void) {
-  if (!linux_bzimage_path[0] || !linux_initrd_path[0] ||
-      linux_bzimage_len == 0 || linux_initrd_len == 0) {
+  if (!linux_bzimage_user || !linux_initrd_user) {
     notify("13.60: Linux images missing, cannot stage HV boot.\n");
     return -1;
   }
@@ -403,58 +344,17 @@ static int stage_hv_boot(void) {
     strcat(info.cmdline, " maxcpus=1 nosmp");
 #endif
 
-  /* The GPU's VBIOS, which the kernel expects to find at 0xC0000. It lives in
-   * the kernel's data as ktext + G_VBIOS and shellcode_hv cannot reach it: it
-   * runs on the identity map, where only the first 5 GiB exists and the kernel's
-   * virtual addresses do not. So it is copied into the cave here and moved into
-   * place by shellcode_hv, which can write physical addresses directly. */
-  info.vbios = info.initrd + ALIGN_UP(linux_initrd_len, PAGE_SIZE);
-  info.vbios_size = 0x10000;
-
   kwrite(pa_to_dmap(cave_linux_info), &info, sizeof(struct linux_info));
-  if (stream_file_into_cave(info.bzimage, linux_bzimage_path,
-                            info.bzimage_size, "bzImage") ||
-      stream_file_into_cave(info.initrd, linux_initrd_path, info.initrd_size,
-                            "initrd"))
+  kwrite_large(pa_to_dmap(info.bzimage), linux_bzimage_user,
+               info.bzimage_size);
+  kwrite_large(pa_to_dmap(info.initrd), linux_initrd_user, info.initrd_size);
+
+  /* Read the images back and compare them with the mappings fetch_linux() left
+   * in this process. */
+  if (verify_staged(info.bzimage, linux_bzimage_user, info.bzimage_size,
+                    "bzImage") ||
+      verify_staged(info.initrd, linux_initrd_user, info.initrd_size, "initrd"))
     return -1;
-
-  /* Read the images back and compare them with the files.
-   *
-   * Nothing checked this before. The staging reported that it had streamed N
-   * bytes and that was taken as done, so a truncated or misplaced copy would
-   * have looked exactly like a healthy one - and a kernel that cannot unpack its
-   * initramfs panics within a few seconds, which is precisely the symptom. The
-   * head, one chunk in the middle and the tail of each image are enough to catch
-   * a short copy, an off-by-one in the destination and a source that ran out. */
-  if (verify_streamed(info.bzimage, linux_bzimage_path, info.bzimage_size,
-                      "bzImage") ||
-      verify_streamed(info.initrd, linux_initrd_path, info.initrd_size, "initrd"))
-    return -1;
-
-  {
-    static uint8_t vbios_chunk[0x1000];
-
-    /* Look before writing. G_VBIOS is the one offset in this path that no dump
-     * ever confirmed - it sits past the end of the 46 MB kernel image, so the
-     * byte-level check cannot reach it. If it is wrong, the read yields rubbish
-     * and putting that at 0xC0000 would hand the kernel a bogus ROM.
-     *
-     * A PCI option ROM starts 55 AA. Read the first bytes and only copy if they
-     * are there, which keeps a bad offset from writing anything at all. */
-    if (!vbios_signature_ok) {
-      info.vbios_size = 0;
-    } else {
-      for (size_t off = 0; off < info.vbios_size; off += sizeof(vbios_chunk)) {
-        size_t n = info.vbios_size - off;
-        if (n > sizeof(vbios_chunk))
-          n = sizeof(vbios_chunk);
-        kread(ktext + env_offset.G_VBIOS + off, vbios_chunk, n);
-        kwrite_large(pa_to_dmap(info.vbios + off), vbios_chunk, n);
-      }
-      notify("13.60: VBIOS signature ok; copied %zu B into the cave at %#lx.\n",
-             (size_t)info.vbios_size, (unsigned long)info.vbios);
-    }
-  }
 
   notify("13.60: staged shellcode_hv (%u B) + Linux @ %#lx/%#lx.\n",
          shellcode_hv_bin_len, (unsigned long)info.bzimage,

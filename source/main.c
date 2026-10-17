@@ -2,6 +2,7 @@
 #include "hv_defeat_0506.h"
 #include "hv_defeat_0607.h"
 #include "hv_defeat_1320.h"
+#include "hv_defeat_1360.h"
 #include "loader.h"
 #include "prepare_resume.h"
 #include "utils.h"
@@ -37,6 +38,7 @@ int main(void) {
   }
 
   int is_1320 = 0;
+  int is_1360 = 0;
   void *shellcode_kernel = NULL;
   size_t shellcode_kernel_len = 0;
   if (fw < 0x0800) {
@@ -47,10 +49,11 @@ int main(void) {
       return -1;
     }
   } else {
-    /* The 13.20 (Byepervisor khook) vector boots via shellcode_hv staged from
-     * post_resume(); it never uses shellcode_kernel, so skip the legacy kernel
-     * cave staging + page-table rewrite entirely (fewer arm-time deviations). */
-    notify("13.20: skipping legacy shellcode_kernel staging.\n");
+    /* The 13.20/13.60 (Byepervisor khook) vectors boot via shellcode_hv staged
+     * from post_resume(); they never use shellcode_kernel, so skip the legacy
+     * kernel cave staging + page-table rewrite entirely (fewer arm-time
+     * deviations). */
+    notify("high fw: skipping legacy shellcode_kernel staging.\n");
   }
 
   if ((0x0300 <= fw) && (fw < 0x0500)) {
@@ -62,6 +65,10 @@ int main(void) {
   } else if ((0x0650 <= fw) && (fw < 0x0800)) {
     if (hv_defeat_0607(shellcode_kernel, shellcode_kernel_len))
       goto err;
+  } else if (fw == 0x1360) {
+    if (hv_defeat_1360())
+      goto err;
+    is_1360 = 1;
   } else if ((0x0800 <= fw) && (fw < 0x1400)) {
     if (hv_defeat_1320(shellcode_kernel, shellcode_kernel_len))
       goto err;
@@ -77,10 +84,12 @@ int main(void) {
   sleep(5);
   enter_rest_mode();
 
-  /* On 13.20 the console comes back from rest mode with NPT disabled; finish
-   * the takeover from here (runs on the BSP once we wake). */
+  /* On 13.20/13.60 the console comes back from rest mode with NPT disabled;
+   * finish the takeover from here (runs on the BSP once we wake). */
   if (is_1320)
     hv_defeat_1320_post_resume();
+  if (is_1360)
+    hv_defeat_1360_post_resume();
 
   while (1) {
     sleep(30);
