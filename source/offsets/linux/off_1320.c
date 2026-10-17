@@ -34,12 +34,13 @@ offset_list off_1320 = {
      * "smp rendezvous" string (0x9C0F9D80) and following refs to the shared
      * rendezvous globals. */
     .FUN_SMP_RENDEZVOUS = 0xAF94E0,
-    /* TODO(13.20): the no-op setup/teardown barrier is still unidentified; the
-     * shellcode can substitute its own no-op, so this may stay unused. */
-    .FUN_SMP_NO_RENDEVOUS_BARRIER = 0,
-    /* The Byepervisor vector runs from startup_mp, not a fixed VMEXIT cave */
-    .HV_CODE_CAVE_PA = 0,
-    .HV_HANDLE_VMEXIT_PA = 0,
+    /* Empty ret immediately preceding smp_rendezvous_cpus @0xAF92B0.
+     * Usable only after KERNEL_CFI_CHECK is cleared (no CFI slot). */
+    .FUN_SMP_NO_RENDEVOUS_BARRIER = 0xAF92A0,
+    /* Identity-mapped HV code cave PA. Pure 0xCC region; constant across all FWs. */
+    .HV_CODE_CAVE_PA = 0x62806F00,
+    /* HV VMEXIT wrapper (vmload;vmrun;vmsave). Found in hv_1320_24m.bin. */
+    .HV_HANDLE_VMEXIT_PA = 0x6283374D,
     /* TODO(13.20): UART override not yet located */
     .KERNEL_UART_OVERRIDE = 0,
     /* Out-of-line UBSan CFI failure handler: called on the slow path of every

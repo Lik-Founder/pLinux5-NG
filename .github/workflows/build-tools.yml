@@ -5,12 +5,16 @@ on:
     branches: [master]
     tags: ["v*"]
     paths:
-      - "tools/**"
+      - "source/tools/offsets/**"
+      - "include/tools/offsets/**"
+      - "Makefile"
       - ".github/workflows/build-tools.yml"
   pull_request:
     branches: [master]
     paths:
-      - "tools/**"
+      - "source/tools/offsets/**"
+      - "include/tools/offsets/**"
+      - "Makefile"
   workflow_dispatch:
 
 permissions:
@@ -19,13 +23,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
-    strategy:
-      fail-fast: false
-      matrix:
-        # One entry per firmware we ship a signature table for
-        # (tools/sigtable_<fw>.h, regenerated with tools/gen_sigtable.py).
-        fw: ["1320"]
 
     steps:
       - name: Checkout
@@ -71,28 +68,25 @@ jobs:
           repository: pLabs5/pLabs5-SDK
           path: pLabs5-SDK
 
-      - name: Build pl5-offsets
+      - name: Build offsets-tool
         run: |
-          test -f "tools/sigtable_${{ matrix.fw }}.h"
-          make -C tools clean
-          make -C tools SIGTABLE="sigtable_${{ matrix.fw }}.h"
-
+          make clean
+          make offsets-tool -j"$(nproc)"
         env:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
           LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
 
       - name: Generate checksum
         run: |
-          sha256sum tools/pl5-offsets.elf \
-            > tools/pl5-offsets.elf.sha256
+          sha256sum bin/offsets-tool.elf > bin/offsets-tool.elf.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: pl5-offsets-${{ matrix.fw }}
+          name: offsets-tool
           path: |
-            tools/pl5-offsets.elf
-            tools/pl5-offsets.elf.sha256
+            bin/offsets-tool.elf
+            bin/offsets-tool.elf.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -101,8 +95,8 @@ jobs:
     runs-on: ubuntu-24.04
     # Tag-gated, like the main workflow: only publish on a v* tag push. The
     # tag push also runs build-pLinux5-NG.yml's release job; both attach to the
-    # same GitHub Release (softprops get-or-create), so the offsets binaries
-    # land alongside pLinux5-NG.elf on that release.
+    # same GitHub Release (softprops get-or-create), so the offsets binary
+    # lands alongside pLinux5-NG.elf on that release.
     if: startsWith(github.ref, 'refs/tags/v')
 
     permissions:
@@ -112,13 +106,12 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v5
         with:
-          pattern: pl5-offsets-*
+          name: offsets-tool
           path: release
-          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/pl5-offsets.elf
-            release/pl5-offsets.elf.sha256
+            release/offsets-tool.elf
+            release/offsets-tool.elf.sha256

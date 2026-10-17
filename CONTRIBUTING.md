@@ -20,9 +20,10 @@ been added yet.
 ## adding your firmware
 
 support is per version, and it comes from a table of kernel/hypervisor offsets
-(`source/offsets/off_<fw>.c`, generated from the shared list in
+(`source/offsets/linux/off_<fw>.c`, generated from the shared list in
 `include/offsets/offsets.h`). those offsets have to be pulled out of a real
-console running that firmware.
+console running that firmware. the byepervisor vector offsets live separately
+in `source/offsets/byepervisor/` (see `include/offsets/byepervisor.h`).
 
 if you can run a payload, you can generate everything needed with the offsets
 tool.

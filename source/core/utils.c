@@ -1,6 +1,7 @@
 #include "utils.h"
 #include "linux.h"
 #include "manifest.h"
+#include "byepervisor.h"
 #include "offsets.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -165,7 +166,13 @@ int set_offsets(void) {
     env_offset = off_1320;
     break;
   default:
-    return -1;
+    /* No linux offset_list entry: proceed only if a Byepervisor table covers
+     * this firmware, in which case the byepervisor lookups (kdlsym/kgadget)
+     * are served from it and env_offset stays zeroed. */
+    if (!bp_get((uint16_t)fw))
+      return -1;
+    memset(&env_offset, 0, sizeof(env_offset));
+    break;
   }
   return 0;
 }
