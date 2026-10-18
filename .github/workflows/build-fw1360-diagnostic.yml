@@ -41,7 +41,7 @@ jobs:
           LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
         run: |
           make clean
-          make -j2 payload
+          make -j2 payload PL5_FW1360_DIAGNOSTIC=1
           cp bin/pLinux5-NG.elf bin/fw1360-escape-diagnostic.elf
           python3 scripts/verify_fw1360_artifact.py bin/fw1360-escape-diagnostic.elf source/shellcode/break_hv/break_hv.bin > bin/fw1360-build-report.json
           sha256sum bin/fw1360-escape-diagnostic.elf > bin/fw1360-escape-diagnostic.elf.sha256

@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 import struct
+import shutil
+import subprocess
 import sys
 
 
@@ -19,6 +21,20 @@ def verify(payload, ap_blob):
         raise ValueError("AP payload would overlap its parameter block")
     if b"13.60 ESCAPE DIAGNOSTIC ONLY" not in elf:
         raise ValueError("diagnostic identity is missing from the payload")
+    if b"FW1360_DIAGNOSTIC_V2" not in elf:
+        raise ValueError("fail-closed diagnostic identity is missing")
+    objdump = shutil.which("llvm-objdump") or shutil.which("objdump")
+    if not objdump:
+        raise ValueError("an objdump supporting ELF is required")
+    main_asm = subprocess.run(
+        [objdump, "--disassemble-symbols=main", str(payload)],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    if "<main>:" not in main_asm:
+        raise ValueError("compiled main function could not be inspected")
+    for forbidden in ("fetch_linux", "prepare_resume", "hv_defeat_1320"):
+        if forbidden in main_asm:
+            raise ValueError("diagnostic main contains forbidden call: " + forbidden)
     return {
         "artifact": Path(payload).name,
         "machine": "AMD x86-64",
@@ -30,6 +46,8 @@ def verify(payload, ap_blob):
         "linux_boot_verified": False,
         "hardware_escape_verified": False,
         "purpose": "single-cycle firmware-13.60 non-Pro escape diagnostic",
+        "compiled_main_has_linux_fallback": False,
+        "runtime_firmware_gate": True,
     }
 
 

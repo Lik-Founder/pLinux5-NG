@@ -59,13 +59,16 @@ PL5_PROBE ?= 0
 # 3=post-barrier.
 PL5_HV_STOP ?= 0
 
+# Dedicated diagnostic builds must never fall through to the generic loader.
+PL5_FW1360_DIAGNOSTIC ?= 0
+
 # Include search paths shared by the payload and the offsets tool.
 INC := -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor \
        -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets \
        -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv \
        -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
 
-CFLAGS    := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) $(INC)
+CFLAGS    := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_FW1360_DIAGNOSTIC=$(PL5_FW1360_DIAGNOSTIC) $(INC)
 OT_CFLAGS := -std=c23 -Wall $(INC) \
              -Iinclude/tools/offsets/core -Iinclude/tools/offsets/discovery \
              -Iinclude/tools/offsets/dump -Iinclude/tools/offsets/defeat \

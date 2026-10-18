@@ -26,6 +26,19 @@ int main(void) {
   sigaction(SIGBUS, &sa, 0);
   sigaction(SIGILL, &sa, 0);
   sigaction(SIGFPE, &sa, 0);
+
+#if PL5_FW1360_DIAGNOSTIC
+  /* Log the actual SDK readback before any offset-dependent initialization.
+   * A diagnostic build is never allowed to try the generic Linux path. */
+  uint32_t raw_fw = kernel_get_fw_version();
+  uint32_t selector = (raw_fw >> 16) & 0xffff;
+  notify("FW1360_DIAGNOSTIC_V2: raw=%#x selector=%#x\n", raw_fw, selector);
+  if (selector != 0x1360) {
+    notify("13.60 diagnostic: firmware readback mismatch; exiting before kernel setup, Linux loading or rest mode.\n");
+    return -1;
+  }
+#endif
+
   if (setup_env()) {
     notify("Something went wrong during initialization.\nPlease make sure "
            "your fw is supported.");
@@ -45,6 +58,10 @@ int main(void) {
     return hv_defeat_1360_post_resume();
   }
 
+#if PL5_FW1360_DIAGNOSTIC
+  notify("13.60 diagnostic: selector changed after setup (%#x); refusing fallback.\n", fw);
+  return -1;
+#else
   if (fetch_linux(&linux_i)) {
     notify("Something went wrong while installing linux files.\n");
     return -1;
@@ -106,4 +123,5 @@ err:
   notify("Something went wrong while defeating Hypervisor.\nPlease make sure "
          "your fw is supported.");
   return -1;
+#endif
 }
