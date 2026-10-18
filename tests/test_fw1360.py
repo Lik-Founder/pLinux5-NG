@@ -85,6 +85,28 @@ class Firmware1360Tests(unittest.TestCase):
                     self.assertIn("NATIVE_FIXTURE_ONLY " + expected, result.stdout)
                     self.assertIn("FW1360_DIAGNOSTIC_V2", result.stdout)
 
+    def test_readback_probe_compiles_without_loader_headers(self):
+        with tempfile.TemporaryDirectory(prefix="pl5-readback-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "ps5").mkdir()
+            (tmp / "sys").mkdir()
+            (tmp / "ps5/kernel.h").write_text("unsigned int kernel_get_fw_version(void);\n")
+            (tmp / "sys/sysctl.h").write_text(
+                "#include <stddef.h>\n"
+                "int sysctlbyname(const char *, void *, size_t *, const void *, size_t);\n")
+            binary = tmp / "readback.o"
+            subprocess.run([
+                os.environ.get("HOST_CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-I", str(tmp), "-c", str(ROOT / "source/diagnostics/fw_version_readback.c"),
+                "-o", str(binary),
+            ], check=True)
+            symbols = subprocess.run(["nm", "-u", str(binary)], check=True,
+                                     capture_output=True, text=True).stdout
+            self.assertIn("sceKernelGetProsperoSystemSwVersion", symbols)
+            self.assertIn("sysctlbyname", symbols)
+            for forbidden in ("kernel_copyin", "kernel_copyout", "enter_rest_mode", "hv_defeat"):
+                self.assertNotIn(forbidden, symbols)
+
     def test_hv_physical_base_is_not_a_leading_zero_bug(self):
         self.assertEqual(int("062800000", 16), int("62800000", 16))
 

@@ -1,4 +1,4 @@
-.PHONY: all clean clean-objs version payload offsets-tool
+.PHONY: all clean clean-objs version payload offsets-tool firmware-readback
 
 ifndef PS5_PAYLOAD_SDK
     PS5_PAYLOAD_SDK = /opt/ps5-payload-sdk/
@@ -94,6 +94,13 @@ version:
 # Convenience targets to build a single artifact.
 payload: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(BIN)
 offsets-tool: $(SC_BREAK_H) $(SC_ORACLE_H) $(OTBIN)
+
+# Independent read-only firmware APIs, without the loader or hypervisor code.
+firmware-readback: bin/fw-version-readback.elf
+
+bin/fw-version-readback.elf: source/diagnostics/fw_version_readback.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
 
 $(SC_0607_H):
 	$(MAKE) -C source/shellcode/0607
