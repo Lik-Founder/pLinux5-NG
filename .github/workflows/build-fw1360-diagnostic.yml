@@ -1,0 +1,61 @@
+name: Build 13.60 escape diagnostic
+
+on:
+  push:
+    branches: ['fix/13.60-boot']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Native regression tests (not hardware boot tests)
+        run: python3 -m unittest discover -s tests -v
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          wget -qO "$RUNNER_TEMP/llvm.sh" https://apt.llvm.org/llvm.sh
+          chmod +x "$RUNNER_TEMP/llvm.sh"
+          sudo "$RUNNER_TEMP/llvm.sh" 21
+          sudo apt-get install -y clang-21 lld-21 llvm-21 gcc make binutils python3 wget unzip ca-certificates
+          echo '/usr/lib/llvm-21/bin' >> "$GITHUB_PATH"
+      - name: Download checksum-pinned PS5 Payload SDK
+        run: |
+          wget -q -O "$RUNNER_TEMP/ps5-payload-sdk.zip" https://github.com/ps5-payload-dev/sdk/releases/download/v0.44/ps5-payload-sdk.zip
+          printf '4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0  %s\n' "$RUNNER_TEMP/ps5-payload-sdk.zip" | sha256sum --check -
+          sudo unzip -q -d /opt "$RUNNER_TEMP/ps5-payload-sdk.zip"
+          test -f /opt/ps5-payload-sdk/toolchain/prospero.mk
+      - name: Checkout pinned pLabs5 toolchain shim
+        uses: actions/checkout@v5
+        with:
+          repository: pLabs5/pLabs5-SDK
+          ref: eeae9d047623f71dbaecc7328dd4e32e4d7101d0
+          path: pLabs5-SDK
+      - name: Compile diagnostic ELF
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+          LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
+        run: |
+          make clean
+          make -j2 payload
+          cp bin/pLinux5-NG.elf bin/fw1360-escape-diagnostic.elf
+          python3 scripts/verify_fw1360_artifact.py bin/fw1360-escape-diagnostic.elf source/shellcode/break_hv/break_hv.bin > bin/fw1360-build-report.json
+          sha256sum bin/fw1360-escape-diagnostic.elf > bin/fw1360-escape-diagnostic.elf.sha256
+          git rev-parse HEAD > bin/source-commit.txt
+          readelf -h bin/fw1360-escape-diagnostic.elf
+          cat bin/fw1360-build-report.json
+      - name: Upload diagnostic (NOT a Linux boot release)
+        uses: actions/upload-artifact@v5
+        with:
+          name: fw1360-escape-diagnostic
+          path: |
+            bin/fw1360-escape-diagnostic.elf
+            bin/fw1360-escape-diagnostic.elf.sha256
+            bin/fw1360-build-report.json
+            bin/source-commit.txt
+          if-no-files-found: error
+          retention-days: 30

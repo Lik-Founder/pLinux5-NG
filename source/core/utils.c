@@ -3,6 +3,7 @@
 #include "manifest.h"
 #include "byepervisor.h"
 #include "offsets.h"
+#include "byepervisor/kdlsym.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/cpuset.h>
@@ -183,6 +184,16 @@ int set_offsets(void) {
 int init_global_vars(void) {
   ktext = KERNEL_ADDRESS_TEXT_BASE;
   kdata = KERNEL_ADDRESS_DATA_BASE;
+
+  /* The 13.60 escape needs only the kernel pmap and direct map. Do not rely
+   * on an unverified proc->vmspace layout or allocate/map Linux buffers. */
+  if (fw == 0x1360) {
+    cr3 = kread64(kdlsym(KERNEL_SYM_PMAP_STORE) + 0x28);
+    dmap = kdldmap(0);
+    if (!cr3 || (cr3 & 0xFFF) || (dmap >> 48) != 0xFFFF)
+      return -1;
+    return 0;
+  }
 
   flat_pmap kernel_pmap;
   kread(getpmap(kernel_get_proc(0)), &kernel_pmap, sizeof(kernel_pmap));

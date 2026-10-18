@@ -1,16 +1,12 @@
 #ifndef HV_DEFEAT_1360_H
 #define HV_DEFEAT_1360_H
 
-/*
- * High-firmware (8.xx+) hypervisor defeat, 13.60 port of the Byepervisor khook
- * escape. See source/hv/defeat/hv_defeat_1360.c for the design.
- */
+/* Firmware 13.60, non-Pro, single-cycle escape diagnostic. This interface does
+ * not launch Linux; see docs/13.60-investigation.md for the missing takeover. */
 int hv_defeat_1360(void);
 
-/*
- * Second phase, run after waking from rest mode (once break_hv has disabled
- * NPT): take over the hypervisor from the BSP and boot Linux. Does not return.
- */
+/* Wait for the AP's all-core completion state, restore the resume hook, report
+ * the diagnostic result and return to elfldr. */
 int hv_defeat_1360_post_resume(void);
 
 #endif

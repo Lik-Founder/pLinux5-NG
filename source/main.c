@@ -32,13 +32,25 @@ int main(void) {
     return -1;
   }
 
+  /* The 13.60 takeover is not firmware-correct yet. This build deliberately
+   * performs only the escape diagnostic, before any Linux file reads or cave
+   * writes. Never feed the shared 13.20 takeover addresses to a 13.60 console. */
+  if (fw == 0x1360) {
+    notify("13.60 ESCAPE DIAGNOSTIC ONLY - this build will NOT boot Linux.\n");
+    if (hv_defeat_1360())
+      return -1;
+    notify("Entering rest mode in 5 seconds. Wait for steady orange before waking.\n");
+    sleep(5);
+    enter_rest_mode();
+    return hv_defeat_1360_post_resume();
+  }
+
   if (fetch_linux(&linux_i)) {
     notify("Something went wrong while installing linux files.\n");
     return -1;
   }
 
   int is_1320 = 0;
-  int is_1360 = 0;
   void *shellcode_kernel = NULL;
   size_t shellcode_kernel_len = 0;
   if (fw < 0x0800) {
@@ -65,10 +77,6 @@ int main(void) {
   } else if ((0x0650 <= fw) && (fw < 0x0800)) {
     if (hv_defeat_0607(shellcode_kernel, shellcode_kernel_len))
       goto err;
-  } else if (fw == 0x1360) {
-    if (hv_defeat_1360())
-      goto err;
-    is_1360 = 1;
   } else if ((0x0800 <= fw) && (fw < 0x1400)) {
     if (hv_defeat_1320(shellcode_kernel, shellcode_kernel_len))
       goto err;
@@ -84,12 +92,9 @@ int main(void) {
   sleep(5);
   enter_rest_mode();
 
-  /* On 13.20/13.60 the console comes back from rest mode with NPT disabled;
-   * finish the takeover from here (runs on the BSP once we wake). */
+  /* The legacy/high-FW 13.20 path finishes takeover from the resumed BSP. */
   if (is_1320)
     hv_defeat_1320_post_resume();
-  if (is_1360)
-    hv_defeat_1360_post_resume();
 
   while (1) {
     sleep(30);

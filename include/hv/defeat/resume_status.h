@@ -1,0 +1,12 @@
+#ifndef PL5_RESUME_STATUS_H
+#define PL5_RESUME_STATUS_H
+
+/* These states are deliberately distinct. The kernel hook runs before the AP
+ * payload; neither HOOK_FIRED nor HV_ENTERED proves that all VMCBs were updated. */
+#define PL5_COOKIE_HOOK_FIRED 0xCAFE133741414141ULL
+#define PL5_COOKIE_HV_ENTERED 0xCAFEDEAD00001336ULL
+#define PL5_COOKIE_HV_COMPLETE 0xCAFEDEAD00001337ULL
+#define PL5_COOKIE_HV_INCOMPLETE 0xCAFEDEAD00001338ULL
+#define PL5_EXPECTED_CORE_MASK 0xFFFFULL
+
+#endif

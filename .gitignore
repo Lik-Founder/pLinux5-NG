@@ -20,5 +20,7 @@ source/tools/offsets/oracle/ot_oracle_blob.bin
 source/tools/offsets/oracle/ot_oracle_blob.h
 
 # Editor / OS noise
+__pycache__/
+*.pyc
 *.swp
 .DS_Store

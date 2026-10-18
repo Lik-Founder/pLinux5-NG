@@ -1,4 +1,10 @@
-> [!IMPORTANT]
+> [!WARNING]
+> **This fork's 13.60 build is an escape diagnostic, NOT a Linux boot release.**
+> It intentionally skips Linux image loading and the unsafe, 13.20-specific
+> takeover. Read [the 13.60 investigation](docs/13.60-investigation.md) before use.
+> No successful Linux boot on 13.60 has been verified by this fork.
+>
+> Original upstream notice:
 > this project is still **VERY** Work-in-progress, currently only 13.20 is supported
 > until i can get offsets for other FW's / full linux support
 
