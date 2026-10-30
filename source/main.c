@@ -38,6 +38,15 @@ int main(void) {
     return -1;
   }
 #endif
+#if PL5_1160_DIAGNOSTIC
+  uint32_t raw_fw_1160 = kernel_get_fw_version();
+  uint32_t selector_1160 = (raw_fw_1160 >> 16) & 0xffff;
+  notify("FW1160_DIAGNOSTIC_V1: raw=%#x selector=%#x\n", raw_fw_1160, selector_1160);
+  if (selector_1160 != 0x1160) {
+    notify("11.60 diagnostic: firmware readback mismatch; exiting before kernel setup, Linux loading or rest mode.\n");
+    return -1;
+  }
+#endif
 
   if (setup_env()) {
     notify("Something went wrong during initialization.\nPlease make sure "
@@ -57,6 +66,19 @@ int main(void) {
     enter_rest_mode();
     return hv_defeat_1360_post_resume();
   }
+#if PL5_1160_DIAGNOSTIC
+  if (fw == 0x1160) {
+    notify("11.60 ESCAPE DIAGNOSTIC ONLY - this build will NOT boot Linux.\n");
+    notify("11.60: running hypervisor escape with PL5_DIAG=%d\n", PL5_DIAG);
+    if (hv_defeat_1320(NULL, 0))
+      return -1;
+    notify("Entering rest mode in 5 seconds. Wait for steady orange before waking.\n");
+    sleep(5);
+    enter_rest_mode();
+    hv_defeat_1320_post_resume();
+    return 0;
+  }
+#endif
 
 #if PL5_FW1360_DIAGNOSTIC
   notify("13.60 diagnostic: selector changed after setup (%#x); refusing fallback.\n", fw);
@@ -122,6 +144,10 @@ int main(void) {
 err:
   notify("Something went wrong while defeating Hypervisor.\nPlease make sure "
          "your fw is supported.");
+  return -1;
+#endif
+#if PL5_1160_DIAGNOSTIC
+  notify("11.60 diagnostic: selector changed after setup (%#x); refusing fallback.\n", fw);
   return -1;
 #endif
 }
